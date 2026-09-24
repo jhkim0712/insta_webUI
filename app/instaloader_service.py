@@ -20,6 +20,7 @@ log = logging.getLogger("crawler")
 
 MEDIA_EXTS = {".jpg", ".jpeg", ".png", ".webp", ".mp4"}
 _INDEX_RE = re.compile(r"_(\d+)$")
+_CHECKPOINT_RE = re.compile(r"Checkpoint required\. Point your browser to (\S+)")
 
 
 class CrawlState:
@@ -73,9 +74,19 @@ def login(username: str, password: str) -> str:
     except BadCredentialsException:
         raise ValueError("아이디 또는 비밀번호가 올바르지 않습니다.")
     except InstaloaderException as e:
-        raise ValueError(f"로그인 실패: {e}")
+        raise ValueError(_checkpoint_message(e) or f"로그인 실패: {e}")
     L.save_session_to_file(str(session_file(username)))
     return "ok"
+
+
+def _checkpoint_message(e: Exception) -> str | None:
+    """Instagram's security check: the user has to approve the login in a browser first."""
+    m = _CHECKPOINT_RE.search(str(e))
+    if not m:
+        return None
+    return ("인스타그램 보안 확인(checkpoint)이 필요합니다. 브라우저에서 "
+            f"https://www.instagram.com{m.group(1)} 에 접속해 본인 확인을 마친 뒤 다시 로그인하세요. "
+            "계속 반복되면 내 PC에서 만든 세션 파일을 업로드하세요.")
 
 
 def login_2fa(username: str, code: str) -> None:
@@ -85,7 +96,7 @@ def login_2fa(username: str, code: str) -> None:
     try:
         L.two_factor_login(code.strip())
     except InstaloaderException as e:
-        raise ValueError(f"2단계 인증 실패: {e}")
+        raise ValueError(_checkpoint_message(e) or f"2단계 인증 실패: {e}")
     _pending_2fa.pop(username, None)
     L.save_session_to_file(str(session_file(username)))
 
@@ -172,6 +183,32 @@ def _crawl_target(L, base_dir: Path, target_type: str, name: str, options: dict)
     return new
 
 
+def _load_session(L: instaloader.Instaloader, user: str) -> bool:
+    """Load the saved session into L and check it is still valid."""
+    if not has_session(user):
+        state.add_log("로그인 세션 없음 - 비로그인 상태로 수집 (해시태그는 건너뜀)")
+        return False
+    L.load_session_from_file(user, str(session_file(user)))
+    try:
+        ok = L.test_login() is not None
+    except InstaloaderException as e:
+        # Network trouble or rate limiting: assume the session is fine and let the crawl decide.
+        state.add_log(f"세션 로드: {user} (확인 실패: {e})")
+        return True
+    if not ok:
+        state.add_log(f"세션 만료: {user} - 설정 화면에서 다시 로그인하세요 (해시태그는 건너뜀)")
+        return False
+    state.add_log(f"세션 로드: {user}")
+    return True
+
+
+def _describe_error(e: Exception) -> str:
+    text = str(e)
+    if "login_required" in text:
+        return "로그인이 필요하거나 세션이 만료되었습니다. 설정 화면에서 다시 로그인하세요."
+    return text
+
+
 def run_crawl(trigger: str = "schedule", feed_id: str | None = None) -> None:
     with state.lock:
         if state.running:
@@ -190,12 +227,7 @@ def run_crawl(trigger: str = "schedule", feed_id: str | None = None) -> None:
         base_dir.mkdir(parents=True, exist_ok=True)
 
         L = _new_loader(options)
-        user = settings.get("login_username", "")
-        if has_session(user):
-            L.load_session_from_file(user, str(session_file(user)))
-            state.add_log(f"세션 로드: {user}")
-        else:
-            state.add_log("로그인 세션 없음 - 비로그인 상태로 수집 (제한될 수 있음)")
+        logged_in = _load_session(L, settings.get("login_username", ""))
 
         targets = crawl_targets(settings, feed_id)
         feed = find_feed(settings, feed_id) if feed_id else None
@@ -209,13 +241,19 @@ def run_crawl(trigger: str = "schedule", feed_id: str | None = None) -> None:
                 state.add_log("사용자 요청으로 중지")
                 break
             state.current = f"{target_type}:{name}"
+            if target_type == "hashtag" and not logged_in:
+                # Instagram rejects hashtag queries without a login (403 login_required).
+                errors.append(f"{target_type}:{name}: 해시태그 수집은 로그인이 필요합니다")
+                state.add_log(f"{target_type}:{name} 건너뜀 - 해시태그 수집은 로그인이 필요합니다")
+                continue
             try:
                 n = _crawl_target(L, base_dir, target_type, name, options)
                 total_new += n
                 state.add_log(f"{target_type}:{name} 완료 - 신규 {n}개")
             except Exception as e:  # keep going with the next target
-                errors.append(f"{target_type}:{name}: {e}")
-                state.add_log(f"{target_type}:{name} 실패 - {e}")
+                msg = _describe_error(e)
+                errors.append(f"{target_type}:{name}: {msg}")
+                state.add_log(f"{target_type}:{name} 실패 - {msg}")
 
         status = "stopped" if state.stop_requested else ("error" if errors else "success")
         db.finish_run(run_id, status, total_new, "; ".join(errors)[:2000])

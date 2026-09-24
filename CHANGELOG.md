@@ -2,6 +2,13 @@
 
 이 프로젝트의 주요 변경 사항을 기록합니다. 버전은 [Semantic Versioning](https://semver.org/lang/ko/)을 따릅니다.
 
+## [1.1.1] - 2026-09-24
+
+### Fixed
+- 로그인하지 않았거나 세션이 만료된 상태에서 해시태그를 수집하면 `403 login_required` 오류가 나던 문제. 수집을 시작할 때 세션이 유효한지 확인하고, 로그인이 안 되어 있으면 해시태그 대상은 건너뛰면서 로그에 이유를 남깁니다.
+- 로그인할 때 인스타그램 보안 확인(checkpoint)이 뜨면, 브라우저에서 열 전체 주소와 해결 방법을 안내합니다.
+- `login_required` 오류를 "다시 로그인하세요" 안내 문구로 바꿔 보여 줍니다.
+
 ## [1.1.0] - 2026-09-24
 
 ### Added
@@ -26,5 +33,6 @@
 - RSS 2.0 피드 (`content:encoded` 안의 이미지·동영상, Media RSS)
 - Docker 이미지와 GitHub Actions 빌드·GHCR 배포·릴리스
 
+[1.1.1]: https://github.com/jhkim0712/insta_webUI/releases/tag/v1.1.1
 [1.1.0]: https://github.com/jhkim0712/insta_webUI/releases/tag/v1.1.0
 [1.0.0]: https://github.com/jhkim0712/insta_webUI/commit/c6f70ad
