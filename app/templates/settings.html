@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}설정 - Insta WebUI{% endblock %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-8">
+    <form method="post" action="/settings" class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title mb-3">수집 대상</h5>
+        <div class="row g-3 mb-4">
+          <div class="col-md-6">
+            <label class="form-label" for="profiles">계정 (한 줄에 하나)</label>
+            <textarea class="form-control font-monospace" id="profiles" name="profiles" rows="6" placeholder="natgeo&#10;nasa">{{ settings.profiles | join('\n') }}</textarea>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="hashtags">해시태그 (한 줄에 하나, # 생략 가능)</label>
+            <textarea class="form-control font-monospace" id="hashtags" name="hashtags" rows="6" placeholder="travel&#10;서울">{{ settings.hashtags | join('\n') }}</textarea>
+            <div class="form-text">해시태그 수집은 로그인이 필요합니다.</div>
+          </div>
+        </div>
+
+        <h5 class="card-title mb-3">다운로드 옵션</h5>
+        <div class="row g-2 mb-3">
+          {% set o = settings.options %}
+          {% for key, label in [('download_pictures','사진'), ('download_videos','동영상'), ('download_video_thumbnails','동영상 썸네일'),
+                                ('download_comments','댓글 (로그인 필요)'), ('save_metadata','메타데이터 JSON'), ('fast_update','빠른 업데이트 (이미 받은 게시물에서 중단)')] %}
+          <div class="col-md-6">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" role="switch" id="{{ key }}" name="{{ key }}" value="true" {% if o[key] %}checked{% endif %}>
+              <label class="form-check-label" for="{{ key }}">{{ label }}</label>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+        <div class="row g-3 mb-4">
+          <div class="col-md-6">
+            <label class="form-label" for="max_posts_per_target">대상별 최대 확인 게시물 수</label>
+            <input type="number" min="0" class="form-control" id="max_posts_per_target" name="max_posts_per_target" value="{{ o.max_posts_per_target }}">
+            <div class="form-text">0 = 제한 없음 (해시태그에는 비권장)</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="download_subdir">다운로드 경로</label>
+            <div class="input-group">
+              <span class="input-group-text font-monospace">{{ downloads_root }}/</span>
+              <input class="form-control font-monospace" id="download_subdir" name="download_subdir" value="{{ settings.download_subdir }}" placeholder="(루트)">
+            </div>
+            <div class="form-text">대상별로 <code>&lt;경로&gt;/&lt;계정&gt;</code>, <code>&lt;경로&gt;/hashtag_&lt;태그&gt;</code> 폴더에 저장됩니다.</div>
+          </div>
+        </div>
+
+        <h5 class="card-title mb-3">스케줄</h5>
+        {% set s = settings.schedule %}
+        <div class="row g-3 mb-4">
+          <div class="col-md-4">
+            <label class="form-label" for="schedule_mode">모드</label>
+            <select class="form-select" id="schedule_mode" name="schedule_mode">
+              <option value="disabled" {% if s.mode == 'disabled' %}selected{% endif %}>비활성 (수동 실행만)</option>
+              <option value="interval" {% if s.mode == 'interval' %}selected{% endif %}>주기 (분 단위)</option>
+              <option value="cron" {% if s.mode == 'cron' %}selected{% endif %}>Cron 표현식</option>
+            </select>
+          </div>
+          <div class="col-md-4" data-mode="interval">
+            <label class="form-label" for="interval_minutes">주기 (분)</label>
+            <input type="number" min="1" class="form-control" id="interval_minutes" name="interval_minutes" value="{{ s.interval_minutes }}">
+            <div class="form-text">60 = 매 1시간</div>
+          </div>
+          <div class="col-md-4" data-mode="cron">
+            <label class="form-label" for="cron">Cron</label>
+            <input class="form-control font-monospace" id="cron" name="cron" value="{{ s.cron }}">
+            <div class="form-text"><code>0 0 * * *</code> = 매일 자정</div>
+          </div>
+        </div>
+
+        <h5 class="card-title mb-3">RSS</h5>
+        <div class="row g-3 mb-4">
+          <div class="col-md-8">
+            <label class="form-label" for="rss_title">피드 제목</label>
+            <input class="form-control" id="rss_title" name="rss_title" value="{{ settings.rss.title }}">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="rss_items_limit">피드 항목 수</label>
+            <input type="number" min="1" max="500" class="form-control" id="rss_items_limit" name="rss_items_limit" value="{{ settings.rss.items_limit }}">
+          </div>
+        </div>
+
+        <button class="btn btn-primary"><i class="bi bi-save"></i> 저장</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="col-lg-4" id="login">
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h5 class="card-title">Instagram 로그인</h5>
+        {% if has_session %}
+          <p>현재 세션: <strong>@{{ settings.login_username }}</strong></p>
+          <form method="post" action="/logout"><button class="btn btn-outline-danger btn-sm">세션 삭제</button></form>
+        {% else %}
+          <p class="small text-body-secondary">비로그인 상태에서는 수집이 크게 제한됩니다. 비밀번호는 저장되지 않고 세션 파일만 <code>/config</code>에 저장됩니다.</p>
+        {% endif %}
+
+        {% if pending_2fa %}
+        <form method="post" action="/login/2fa" class="mt-3">
+          <input type="hidden" name="username" value="{{ pending_2fa }}">
+          <label class="form-label" for="code">2단계 인증 코드 (@{{ pending_2fa }})</label>
+          <input class="form-control mb-2" id="code" name="code" inputmode="numeric" autocomplete="one-time-code" required>
+          <button class="btn btn-primary btn-sm">확인</button>
+        </form>
+        {% else %}
+        <form method="post" action="/login" class="mt-3">
+          <input class="form-control mb-2" name="username" placeholder="사용자명" autocomplete="username" required>
+          <input class="form-control mb-2" type="password" name="password" placeholder="비밀번호" autocomplete="current-password" required>
+          <button class="btn btn-primary btn-sm">로그인</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">세션 파일 가져오기</h5>
+        <p class="small text-body-secondary">로컬에서 <code>instaloader -l USERNAME</code>로 만든 세션 파일
+          (<code>~/.config/instaloader/session-USERNAME</code>)을 업로드할 수 있습니다.</p>
+        <form method="post" action="/session/upload" enctype="multipart/form-data">
+          <input class="form-control mb-2" name="username" placeholder="사용자명" required>
+          <input class="form-control mb-2" type="file" name="file" required>
+          <button class="btn btn-outline-primary btn-sm">업로드</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const modeSel = document.getElementById('schedule_mode');
+  function syncMode() {
+    document.querySelectorAll('[data-mode]').forEach(el => el.classList.toggle('d-none', el.dataset.mode !== modeSel.value));
+  }
+  modeSel.addEventListener('change', syncMode);
+  syncMode();
+</script>
+{% endblock %}

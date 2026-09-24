@@ -1,0 +1,14 @@
+# Runtime data (Instagram session files live in config/ — never commit them)
+config/*
+data/*
+downloads/*
+!config/.gitkeep
+!data/.gitkeep
+!downloads/.gitkeep
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.claude/

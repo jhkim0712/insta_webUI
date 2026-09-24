@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}게시물 - Insta WebUI{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <h4 class="me-auto mb-0">수집된 게시물</h4>
+  <form method="get" class="d-flex gap-2">
+    <select name="target" class="form-select form-select-sm" onchange="this.form.submit()">
+      <option value="">전체</option>
+      {% for c in counts %}
+      {% set v = c.target_type ~ ':' ~ c.target_name %}
+      <option value="{{ v }}" {% if v == target %}selected{% endif %}>{{ '@' if c.target_type == 'profile' else '#' }}{{ c.target_name }} ({{ c.n }})</option>
+      {% endfor %}
+    </select>
+  </form>
+  {% if target %}
+  {% set tt, tn = target.split(':', 1) %}
+  <a class="btn btn-sm btn-outline-warning" href="/rss/{{ tt }}/{{ tn | urlencode }}" target="_blank"><i class="bi bi-rss"></i> 이 대상 RSS</a>
+  {% endif %}
+</div>
+
+<div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">
+  {% for p in posts %}
+  <div class="col">
+    <div class="card h-100 shadow-sm post-card">
+      {% set m = p.media[0] if p.media else None %}
+      {% if m and m.type == 'video' %}
+        <video controls preload="none" {% if m.poster %}poster="{{ media_url(base, m.poster) }}"{% endif %} src="{{ media_url(base, m.path) }}" class="card-img-top"></video>
+      {% elif m %}
+        <img src="{{ media_url(base, m.path) }}" class="card-img-top" loading="lazy" alt="">
+      {% endif %}
+      <div class="card-body p-2">
+        <div class="small fw-semibold">@{{ p.owner }}
+          {% if p.media | length > 1 %}<span class="badge text-bg-secondary ms-1"><i class="bi bi-images"></i> {{ p.media | length }}</span>{% endif %}
+        </div>
+        <div class="small text-body-secondary mb-1">{{ p.date_utc | localtime }}</div>
+        <div class="caption">{{ p.caption }}</div>
+      </div>
+      <div class="card-footer bg-transparent p-2 small">
+        <a href="https://www.instagram.com/p/{{ p.shortcode }}/" target="_blank">Instagram <i class="bi bi-box-arrow-up-right"></i></a>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <p class="text-body-secondary">게시물이 없습니다.</p>
+  {% endfor %}
+</div>
+
+<nav class="mt-4 d-flex justify-content-center gap-2">
+  {% if page > 1 %}<a class="btn btn-outline-secondary btn-sm" href="?target={{ target | urlencode }}&page={{ page - 1 }}">이전</a>{% endif %}
+  {% if has_next %}<a class="btn btn-outline-secondary btn-sm" href="?target={{ target | urlencode }}&page={{ page + 1 }}">다음</a>{% endif %}
+</nav>
+{% endblock %}

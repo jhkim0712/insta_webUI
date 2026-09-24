@@ -1,0 +1,127 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-4">
+  <div class="col-lg-5">
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h5 class="card-title">크롤링 상태</h5>
+        <p class="mb-1">상태: <span id="status-badge" class="badge text-bg-secondary">확인 중…</span></p>
+        <p class="mb-1 small text-body-secondary" id="status-current"></p>
+        <p class="mb-1">스케줄:
+          {% if settings.schedule.mode == 'interval' %}매 {{ settings.schedule.interval_minutes }}분
+          {% elif settings.schedule.mode == 'cron' %}Cron <code>{{ settings.schedule.cron }}</code>
+          {% else %}<span class="text-body-secondary">비활성</span>{% endif %}
+        </p>
+        <p class="mb-1">다음 실행: {{ next_run | localtime }}</p>
+        <p class="mb-1">로그인:
+          {% if has_session %}<span class="text-success">@{{ settings.login_username }}</span>
+          {% else %}<span class="text-warning">세션 없음</span> <a href="/settings#login" class="small">설정</a>{% endif %}
+        </p>
+        <p class="mb-3">수집된 게시물: <strong id="total-posts">{{ total }}</strong>개</p>
+        <div class="d-flex gap-2">
+          <form method="post" action="/run"><button class="btn btn-primary"><i class="bi bi-play-fill"></i> 지금 실행</button></form>
+          <form method="post" action="/stop"><button class="btn btn-outline-danger"><i class="bi bi-stop-fill"></i> 중지</button></form>
+        </div>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h5 class="card-title">RSS 피드</h5>
+        <ul class="list-group list-group-flush">
+          {% for f in feeds %}
+          <li class="list-group-item px-0 d-flex align-items-center gap-2">
+            <span class="fw-semibold text-nowrap">{{ f.label }}</span>
+            <input class="form-control form-control-sm feed-url" readonly value="{{ f.url }}">
+            <button class="btn btn-sm btn-outline-secondary copy-btn" data-url="{{ f.url }}" title="복사"><i class="bi bi-clipboard"></i></button>
+            <a class="btn btn-sm btn-outline-warning" href="{{ f.url }}" target="_blank" title="열기"><i class="bi bi-rss"></i></a>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">대상별 수집 현황</h5>
+        {% if counts %}
+        <table class="table table-sm mb-0">
+          <thead><tr><th>대상</th><th class="text-end">게시물</th><th>최신</th></tr></thead>
+          <tbody>
+          {% for c in counts %}
+            <tr>
+              <td><a href="/posts?target={{ c.target_type }}:{{ c.target_name }}">{{ '@' if c.target_type == 'profile' else '#' }}{{ c.target_name }}</a></td>
+              <td class="text-end">{{ c.n }}</td>
+              <td class="small">{{ c.latest | localtime }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        {% else %}<p class="text-body-secondary mb-0">아직 수집된 게시물이 없습니다.</p>{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card shadow-sm mb-4">
+      <div class="card-body">
+        <h5 class="card-title">실행 로그</h5>
+        <div id="log-box" class="log-box bg-body-secondary rounded p-2 font-monospace"></div>
+      </div>
+    </div>
+    <div class="card shadow-sm">
+      <div class="card-body">
+        <h5 class="card-title">최근 실행 이력</h5>
+        <div class="table-responsive">
+        <table class="table table-sm mb-0">
+          <thead><tr><th>시작</th><th>트리거</th><th>상태</th><th class="text-end">신규</th><th>메시지</th></tr></thead>
+          <tbody>
+          {% for r in runs %}
+            <tr>
+              <td class="small text-nowrap">{{ r.started_at | localtime }}</td>
+              <td>{{ r.trigger }}</td>
+              <td><span class="badge text-bg-{{ {'success':'success','running':'primary','error':'danger','stopped':'warning'}.get(r.status, 'secondary') }}">{{ r.status }}</span></td>
+              <td class="text-end">{{ r.new_posts }}</td>
+              <td class="small text-break">{{ r.message or '' }}</td>
+            </tr>
+          {% else %}
+            <tr><td colspan="5" class="text-body-secondary">실행 이력이 없습니다.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('.copy-btn').forEach(btn => btn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(btn.dataset.url); btn.innerHTML = '<i class="bi bi-check2"></i>'; }
+    catch { btn.previousElementSibling.select(); }
+  }));
+
+  let wasRunning = null;
+  async function poll() {
+    try {
+      const s = await (await fetch('/api/status')).json();
+      const badge = document.getElementById('status-badge');
+      badge.textContent = s.running ? '실행 중' : '대기';
+      badge.className = 'badge text-bg-' + (s.running ? 'primary' : 'secondary');
+      document.getElementById('status-current').textContent = s.current || '';
+      document.getElementById('total-posts').textContent = s.total_posts;
+      const box = document.getElementById('log-box');
+      const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 5;
+      box.textContent = s.logs.join('\n') || '로그가 없습니다.';
+      if (atBottom) box.scrollTop = box.scrollHeight;
+      // Refresh the run history once a crawl finishes.
+      if (wasRunning === true && !s.running) location.replace('/');
+      wasRunning = s.running;
+    } catch (e) { /* server restarting */ }
+  }
+  poll();
+  setInterval(poll, 3000);
+</script>
+{% endblock %}
