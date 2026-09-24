@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ feed.name if feed else '새 피드' }} - Insta WebUI{% endblock %}
+{% block content %}
+<nav aria-label="breadcrumb">
+  <ol class="breadcrumb">
+    <li class="breadcrumb-item"><a href="/feeds">피드</a></li>
+    <li class="breadcrumb-item active">{{ feed.name if feed else '새 피드' }}</li>
+  </ol>
+</nav>
+
+<form method="post" action="{{ '/feeds/' ~ feed.id if feed else '/feeds' }}" class="card shadow-sm" style="max-width: 900px">
+  <div class="card-body">
+    <div class="row g-3 mb-3">
+      <div class="col-md-8">
+        <label class="form-label" for="name">피드 이름</label>
+        <input class="form-control" id="name" name="name" value="{{ feed.name if feed else '' }}" placeholder="예: 여행 사진" required maxlength="100">
+        <div class="form-text">RSS 리더에 피드 제목으로 표시됩니다.</div>
+      </div>
+      <div class="col-md-4 d-flex align-items-center">
+        <div class="form-check form-switch mt-md-3">
+          <input class="form-check-input" type="checkbox" role="switch" id="enabled" name="enabled" value="true"
+                 {% if not feed or feed.enabled %}checked{% endif %}>
+          <label class="form-check-label" for="enabled">자동 수집 활성</label>
+        </div>
+      </div>
+    </div>
+    <div class="row g-3 mb-4">
+      <div class="col-md-6">
+        <label class="form-label" for="profiles">계정 (한 줄에 하나)</label>
+        <textarea class="form-control font-monospace" id="profiles" name="profiles" rows="8" placeholder="natgeo&#10;nasa">{{ feed.profiles | join('\n') if feed else '' }}</textarea>
+      </div>
+      <div class="col-md-6">
+        <label class="form-label" for="hashtags">해시태그 (한 줄에 하나, # 생략 가능)</label>
+        <textarea class="form-control font-monospace" id="hashtags" name="hashtags" rows="8" placeholder="travel&#10;서울">{{ feed.hashtags | join('\n') if feed else '' }}</textarea>
+        <div class="form-text">해시태그 수집은 로그인이 필요합니다.</div>
+      </div>
+    </div>
+    {% if feed %}
+    <p class="small text-body-secondary">RSS 주소: <code>{{ base }}/rss/feed/{{ feed.id }}</code></p>
+    {% endif %}
+    <div class="d-flex gap-2">
+      <button class="btn btn-primary"><i class="bi bi-save"></i> 저장</button>
+      <a href="/feeds" class="btn btn-outline-secondary">취소</a>
+    </div>
+  </div>
+</form>
+{% endblock %}

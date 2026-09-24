@@ -14,7 +14,7 @@ from instaloader.exceptions import (
 )
 
 from . import db
-from .config import DOWNLOADS_ROOT, load_settings, resolve_download_dir, session_file
+from .config import DOWNLOADS_ROOT, crawl_targets, find_feed, load_settings, resolve_download_dir, session_file
 
 log = logging.getLogger("crawler")
 
@@ -172,7 +172,7 @@ def _crawl_target(L, base_dir: Path, target_type: str, name: str, options: dict)
     return new
 
 
-def run_crawl(trigger: str = "schedule") -> None:
+def run_crawl(trigger: str = "schedule", feed_id: str | None = None) -> None:
     with state.lock:
         if state.running:
             state.add_log(f"이미 실행 중이므로 건너뜀 (trigger={trigger})")
@@ -197,11 +197,12 @@ def run_crawl(trigger: str = "schedule") -> None:
         else:
             state.add_log("로그인 세션 없음 - 비로그인 상태로 수집 (제한될 수 있음)")
 
-        targets = [("profile", p) for p in settings["profiles"]] + \
-                  [("hashtag", h) for h in settings["hashtags"]]
+        targets = crawl_targets(settings, feed_id)
+        feed = find_feed(settings, feed_id) if feed_id else None
+        scope = f"피드 '{feed['name']}'" if feed else "활성 피드 전체"
         if not targets:
             state.add_log("수집 대상이 없습니다.")
-        state.add_log(f"크롤링 시작 (trigger={trigger}, 대상 {len(targets)}개)")
+        state.add_log(f"크롤링 시작 (trigger={trigger}, {scope}, 대상 {len(targets)}개)")
 
         for target_type, name in targets:
             if state.stop_requested:
@@ -228,8 +229,8 @@ def run_crawl(trigger: str = "schedule") -> None:
         state.current = ""
 
 
-def start_crawl_async(trigger: str = "manual") -> bool:
+def start_crawl_async(trigger: str = "manual", feed_id: str | None = None) -> bool:
     if state.running:
         return False
-    threading.Thread(target=run_crawl, args=(trigger,), daemon=True, name="crawl").start()
+    threading.Thread(target=run_crawl, args=(trigger, feed_id), daemon=True, name="crawl").start()
     return True

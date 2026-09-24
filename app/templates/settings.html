@@ -5,17 +5,8 @@
   <div class="col-lg-8">
     <form method="post" action="/settings" class="card shadow-sm">
       <div class="card-body">
-        <h5 class="card-title mb-3">수집 대상</h5>
-        <div class="row g-3 mb-4">
-          <div class="col-md-6">
-            <label class="form-label" for="profiles">계정 (한 줄에 하나)</label>
-            <textarea class="form-control font-monospace" id="profiles" name="profiles" rows="6" placeholder="natgeo&#10;nasa">{{ settings.profiles | join('\n') }}</textarea>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label" for="hashtags">해시태그 (한 줄에 하나, # 생략 가능)</label>
-            <textarea class="form-control font-monospace" id="hashtags" name="hashtags" rows="6" placeholder="travel&#10;서울">{{ settings.hashtags | join('\n') }}</textarea>
-            <div class="form-text">해시태그 수집은 로그인이 필요합니다.</div>
-          </div>
+        <div class="alert alert-secondary py-2 small">
+          수집할 계정·해시태그는 <a href="/feeds">피드</a> 메뉴에서 피드별로 등록합니다. 아래 옵션과 스케줄은 모든 피드에 공통으로 적용됩니다.
         </div>
 
         <h5 class="card-title mb-3">다운로드 옵션</h5>

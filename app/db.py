@@ -80,13 +80,17 @@ def _row_to_post(r: sqlite3.Row) -> dict:
     return d
 
 
-def list_posts(target_type: str | None = None, target_name: str | None = None,
+def list_posts(targets: list[tuple[str, str]] | None = None,
                limit: int = 50, offset: int = 0) -> list[dict]:
+    """targets=None means all posts; an empty list matches nothing."""
     sql = "SELECT * FROM posts"
     args: list = []
-    if target_type:
-        sql += " WHERE target_type=? AND lower(target_name)=lower(?)"
-        args += [target_type, target_name]
+    if targets is not None:
+        if not targets:
+            return []
+        sql += " WHERE " + " OR ".join(["(target_type=? AND lower(target_name)=lower(?))"] * len(targets))
+        for t, n in targets:
+            args += [t, n]
     sql += " ORDER BY date_utc DESC LIMIT ? OFFSET ?"
     args += [limit, offset]
     with connect() as c:

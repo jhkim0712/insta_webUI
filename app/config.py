@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import secrets
 import threading
 from copy import deepcopy
 from pathlib import Path
@@ -18,8 +19,8 @@ PROFILE_RE = re.compile(r"^[A-Za-z0-9._]{1,30}$")
 HASHTAG_RE = re.compile(r"^\w{1,100}$", re.UNICODE)
 
 DEFAULT_SETTINGS = {
-    "profiles": [],
-    "hashtags": [],
+    # [{"id", "name", "profiles": [...], "hashtags": [...], "enabled"}]
+    "feeds": [],
     "options": {
         "download_pictures": True,
         "download_videos": True,
@@ -69,14 +70,59 @@ def load_settings() -> dict:
             data = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return deepcopy(DEFAULT_SETTINGS)
-        return _merge(DEFAULT_SETTINGS, data)
+        settings = _merge(DEFAULT_SETTINGS, data)
+        if _migrate(settings):
+            # Persist right away so the generated feed id (its RSS URL) stays stable.
+            _write(settings)
+        return settings
+
+
+def _migrate(settings: dict) -> bool:
+    """Move pre-feed top-level profiles/hashtags into a default feed."""
+    if "profiles" not in settings and "hashtags" not in settings:
+        return False
+    profiles = settings.pop("profiles", None) or []
+    hashtags = settings.pop("hashtags", None) or []
+    if (profiles or hashtags) and not settings["feeds"]:
+        settings["feeds"].append(new_feed("기본 피드", profiles, hashtags))
+    return True
+
+
+def new_feed(name: str, profiles: list[str], hashtags: list[str], enabled: bool = True) -> dict:
+    return {"id": secrets.token_hex(4), "name": name, "profiles": profiles,
+            "hashtags": hashtags, "enabled": enabled}
+
+
+def find_feed(settings: dict, feed_id: str) -> dict | None:
+    return next((f for f in settings["feeds"] if f["id"] == feed_id), None)
+
+
+def feed_targets(feed: dict) -> list[tuple[str, str]]:
+    return [("profile", p) for p in feed["profiles"]] + [("hashtag", h) for h in feed["hashtags"]]
+
+
+def crawl_targets(settings: dict, feed_id: str | None = None) -> list[tuple[str, str]]:
+    """Targets of enabled feeds (or one feed), de-duplicated case-insensitively."""
+    feeds = [find_feed(settings, feed_id)] if feed_id else [f for f in settings["feeds"] if f.get("enabled", True)]
+    seen: set[tuple[str, str]] = set()
+    out = []
+    for feed in filter(None, feeds):
+        for t, n in feed_targets(feed):
+            if (t, n.lower()) not in seen:
+                seen.add((t, n.lower()))
+                out.append((t, n))
+    return out
+
+
+def _write(settings: dict) -> None:
+    tmp = SETTINGS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(SETTINGS_FILE)
 
 
 def save_settings(settings: dict) -> None:
     with _lock:
-        tmp = SETTINGS_FILE.with_suffix(".tmp")
-        tmp.write_text(json.dumps(settings, ensure_ascii=False, indent=2), encoding="utf-8")
-        tmp.replace(SETTINGS_FILE)
+        _write(settings)
 
 
 def resolve_download_dir(subdir: str) -> Path:

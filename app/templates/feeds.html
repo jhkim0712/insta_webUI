@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}피드 - Insta WebUI{% endblock %}
+{% block content %}
+<div class="d-flex align-items-center mb-3">
+  <h4 class="me-auto mb-0">피드</h4>
+  <a href="/feeds/new" class="btn btn-primary"><i class="bi bi-plus-lg"></i> 새 피드</a>
+</div>
+<p class="text-body-secondary small">피드마다 계정·해시태그를 묶어 별도의 RSS 주소로 제공합니다. 같은 대상을 여러 피드에 넣어도 한 번만 수집합니다.</p>
+
+<div class="row row-cols-1 row-cols-md-2 g-3">
+  {% for f in feeds %}
+  {% set url = base ~ '/rss/feed/' ~ f.id %}
+  <div class="col">
+    <div class="card h-100 shadow-sm {% if not f.enabled %}opacity-75{% endif %}">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <h5 class="card-title mb-0 me-auto">{{ f.name }}</h5>
+          {% if f.enabled %}<span class="badge text-bg-success">활성</span>
+          {% else %}<span class="badge text-bg-secondary" title="자동 수집에서 제외됩니다">비활성</span>{% endif %}
+          <span class="badge text-bg-light border">게시물 {{ f.posts }}</span>
+        </div>
+        <div class="mb-3">
+          {% for p in f.profiles %}<a href="/posts?target=profile:{{ p }}" class="badge rounded-pill text-bg-primary text-decoration-none me-1">@{{ p }}</a>{% endfor %}
+          {% for h in f.hashtags %}<a href="/posts?target=hashtag:{{ h | urlencode }}" class="badge rounded-pill text-bg-info text-decoration-none me-1">#{{ h }}</a>{% endfor %}
+        </div>
+        <div class="input-group input-group-sm mb-3">
+          <span class="input-group-text"><i class="bi bi-rss"></i></span>
+          <input class="form-control feed-url" readonly value="{{ url }}">
+          <button class="btn btn-outline-secondary copy-btn" data-url="{{ url }}" title="복사"><i class="bi bi-clipboard"></i></button>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+          <a href="/feeds/{{ f.id }}" class="btn btn-sm btn-outline-primary"><i class="bi bi-pencil"></i> 편집</a>
+          <a href="/posts?target=feed:{{ f.id }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-images"></i> 게시물</a>
+          <form method="post" action="/feeds/{{ f.id }}/run"><button class="btn btn-sm btn-outline-success"><i class="bi bi-play-fill"></i> 이 피드만 실행</button></form>
+          <form method="post" action="/feeds/{{ f.id }}/delete" class="ms-auto" data-name="{{ f.name }}"
+                onsubmit="return confirm(`피드 '${this.dataset.name}'을(를) 삭제할까요? 수집된 게시물과 파일은 유지됩니다.`)">
+            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i> 삭제</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="col-12">
+    <div class="card card-body text-center text-body-secondary">
+      피드가 없습니다. <a href="/feeds/new">새 피드</a>를 만들어 보세요.
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  document.querySelectorAll('.copy-btn').forEach(btn => btn.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(btn.dataset.url); btn.innerHTML = '<i class="bi bi-check2"></i>'; }
+    catch { btn.previousElementSibling.select(); }
+  }));
+</script>
+{% endblock %}

@@ -27,11 +27,18 @@
 
     <div class="card shadow-sm mb-4">
       <div class="card-body">
-        <h5 class="card-title">RSS 피드</h5>
+        <div class="d-flex align-items-center mb-2">
+          <h5 class="card-title me-auto mb-0">RSS 피드</h5>
+          <a href="/feeds" class="btn btn-sm btn-outline-primary"><i class="bi bi-gear"></i> 피드 관리</a>
+        </div>
+        {% if feeds | length == 1 %}
+        <p class="small text-body-secondary mb-1">아직 피드가 없습니다. <a href="/feeds/new">새 피드</a>를 만들어 계정·해시태그를 등록하세요.</p>
+        {% endif %}
         <ul class="list-group list-group-flush">
           {% for f in feeds %}
           <li class="list-group-item px-0 d-flex align-items-center gap-2">
-            <span class="fw-semibold text-nowrap">{{ f.label }}</span>
+            <span class="fw-semibold text-nowrap {% if not f.enabled %}text-body-secondary text-decoration-line-through{% endif %}"
+                  {% if not f.enabled %}title="비활성 - 자동 수집 제외"{% endif %}>{{ f.label }}</span>
             <input class="form-control form-control-sm feed-url" readonly value="{{ f.url }}">
             <button class="btn btn-sm btn-outline-secondary copy-btn" data-url="{{ f.url }}" title="복사"><i class="bi bi-clipboard"></i></button>
             <a class="btn btn-sm btn-outline-warning" href="{{ f.url }}" target="_blank" title="열기"><i class="bi bi-rss"></i></a>

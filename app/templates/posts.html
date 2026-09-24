@@ -6,16 +6,25 @@
   <form method="get" class="d-flex gap-2">
     <select name="target" class="form-select form-select-sm" onchange="this.form.submit()">
       <option value="">전체</option>
-      {% for c in counts %}
-      {% set v = c.target_type ~ ':' ~ c.target_name %}
-      <option value="{{ v }}" {% if v == target %}selected{% endif %}>{{ '@' if c.target_type == 'profile' else '#' }}{{ c.target_name }} ({{ c.n }})</option>
-      {% endfor %}
+      {% if feeds %}
+      <optgroup label="피드">
+        {% for f in feeds %}
+        {% set v = 'feed:' ~ f.id %}
+        <option value="{{ v }}" {% if v == target %}selected{% endif %}>{{ f.name }}</option>
+        {% endfor %}
+      </optgroup>
+      {% endif %}
+      {% if counts %}
+      <optgroup label="대상">
+        {% for c in counts %}
+        {% set v = c.target_type ~ ':' ~ c.target_name %}
+        <option value="{{ v }}" {% if v == target %}selected{% endif %}>{{ '@' if c.target_type == 'profile' else '#' }}{{ c.target_name }} ({{ c.n }})</option>
+        {% endfor %}
+      </optgroup>
+      {% endif %}
     </select>
   </form>
-  {% if target %}
-  {% set tt, tn = target.split(':', 1) %}
-  <a class="btn btn-sm btn-outline-warning" href="/rss/{{ tt }}/{{ tn | urlencode }}" target="_blank"><i class="bi bi-rss"></i> 이 대상 RSS</a>
-  {% endif %}
+  <a class="btn btn-sm btn-outline-warning" href="{{ rss_url }}" target="_blank"><i class="bi bi-rss"></i> RSS</a>
 </div>
 
 <div class="row row-cols-2 row-cols-md-3 row-cols-lg-4 g-3">

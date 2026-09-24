@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Resp
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from . import db, scheduler
+from . import __version__, db, scheduler
 from . import instaloader_service as svc
 from .config import (
     DOWNLOADS_ROOT,
@@ -18,7 +18,10 @@ from .config import (
     PROFILE_RE,
     PUBLIC_BASE_URL,
     ensure_dirs,
+    feed_targets,
+    find_feed,
     load_settings,
+    new_feed,
     resolve_download_dir,
     save_settings,
     session_file,
@@ -40,7 +43,7 @@ async def lifespan(_app: FastAPI):
     scheduler.shutdown()
 
 
-app = FastAPI(title="Instaloader Web UI", lifespan=lifespan)
+app = FastAPI(title="Instaloader Web UI", version=__version__, lifespan=lifespan)
 ensure_dirs()
 app.mount("/media", StaticFiles(directory=str(DOWNLOADS_ROOT)), name="media")
 
@@ -84,9 +87,9 @@ def _parse_list(text: str, pattern, kind: str) -> list[str]:
 def dashboard(request: Request):
     settings = load_settings()
     b = base_url(request)
-    feeds = [{"label": "전체 피드", "url": f"{b}/rss"}]
-    feeds += [{"label": f"@{p}", "url": f"{b}/rss/profile/{quote(p)}"} for p in settings["profiles"]]
-    feeds += [{"label": f"#{h}", "url": f"{b}/rss/hashtag/{quote(h)}"} for h in settings["hashtags"]]
+    feeds = [{"label": "전체", "url": f"{b}/rss", "enabled": True}]
+    feeds += [{"label": f["name"], "url": f"{b}/rss/feed/{f['id']}", "enabled": f.get("enabled", True)}
+              for f in settings["feeds"]]
     return render(
         request, "index.html",
         settings=settings,
@@ -113,8 +116,6 @@ def settings_page(request: Request):
 
 @app.post("/settings")
 def save_settings_form(
-    profiles: str = Form(""),
-    hashtags: str = Form(""),
     download_pictures: bool = Form(False),
     download_videos: bool = Form(False),
     download_video_thumbnails: bool = Form(False),
@@ -131,8 +132,6 @@ def save_settings_form(
 ):
     settings = load_settings()
     try:
-        settings["profiles"] = _parse_list(profiles, PROFILE_RE, "계정명")
-        settings["hashtags"] = _parse_list(hashtags, HASHTAG_RE, "해시태그")
         resolve_download_dir(download_subdir)
         if schedule_mode not in ("disabled", "interval", "cron"):
             raise ValueError("알 수 없는 스케줄 모드")
@@ -163,16 +162,112 @@ def save_settings_form(
 def posts_page(request: Request, target: str = "", page: int = 1):
     page = max(1, page)
     per_page = 24
-    ttype, tname = (target.split(":", 1) + [""])[:2] if target else (None, None)
-    posts = db.list_posts(ttype, tname, limit=per_page + 1, offset=(page - 1) * per_page)
+    settings = load_settings()
+    targets, rss_url = None, "/rss"
+    if target.startswith("feed:"):
+        feed = find_feed(settings, target[5:])
+        targets = feed_targets(feed) if feed else []
+        rss_url = f"/rss/feed/{quote(target[5:])}"
+    elif ":" in target:
+        ttype, tname = target.split(":", 1)
+        targets = [(ttype, tname)]
+        rss_url = f"/rss/{quote(ttype)}/{quote(tname)}"
+    posts = db.list_posts(targets, limit=per_page + 1, offset=(page - 1) * per_page)
     return render(
         request, "posts.html",
         posts=posts[:per_page],
         has_next=len(posts) > per_page,
         page=page,
         target=target,
+        rss_url=rss_url,
+        feeds=settings["feeds"],
         counts=db.target_counts(),
     )
+
+
+# ------------------------------------------------------------------ feeds --
+
+@app.get("/feeds", response_class=HTMLResponse)
+def feeds_page(request: Request):
+    settings = load_settings()
+    counts = {(c["target_type"], c["target_name"].lower()): c["n"] for c in db.target_counts()}
+    feeds = [{**f, "posts": sum(counts.get((t, n.lower()), 0) for t, n in feed_targets(f))}
+             for f in settings["feeds"]]
+    return render(request, "feeds.html", feeds=feeds)
+
+
+@app.get("/feeds/new", response_class=HTMLResponse)
+def feed_new_page(request: Request):
+    return render(request, "feed_edit.html", feed=None)
+
+
+@app.get("/feeds/{feed_id}", response_class=HTMLResponse)
+def feed_edit_page(request: Request, feed_id: str):
+    feed = find_feed(load_settings(), feed_id)
+    if not feed:
+        raise HTTPException(404)
+    return render(request, "feed_edit.html", feed=feed)
+
+
+def _feed_from_form(name: str, profiles: str, hashtags: str) -> tuple[str, list[str], list[str]]:
+    name = name.strip()
+    if not name:
+        raise ValueError("피드 이름을 입력하세요.")
+    p = _parse_list(profiles, PROFILE_RE, "계정명")
+    h = _parse_list(hashtags, HASHTAG_RE, "해시태그")
+    if not p and not h:
+        raise ValueError("계정 또는 해시태그를 하나 이상 등록하세요.")
+    return name, p, h
+
+
+@app.post("/feeds")
+def feed_create(name: str = Form(""), profiles: str = Form(""), hashtags: str = Form(""),
+                enabled: bool = Form(False)):
+    settings = load_settings()
+    try:
+        name, p, h = _feed_from_form(name, profiles, hashtags)
+    except ValueError as e:
+        return redirect("/feeds/new", str(e), "danger")
+    settings["feeds"].append(new_feed(name, p, h, enabled))
+    save_settings(settings)
+    return redirect("/feeds", f"피드 '{name}'을(를) 만들었습니다.")
+
+
+@app.post("/feeds/{feed_id}")
+def feed_update(feed_id: str, name: str = Form(""), profiles: str = Form(""), hashtags: str = Form(""),
+                enabled: bool = Form(False)):
+    settings = load_settings()
+    feed = find_feed(settings, feed_id)
+    if not feed:
+        raise HTTPException(404)
+    try:
+        name, p, h = _feed_from_form(name, profiles, hashtags)
+    except ValueError as e:
+        return redirect(f"/feeds/{feed_id}", str(e), "danger")
+    feed.update(name=name, profiles=p, hashtags=h, enabled=enabled)
+    save_settings(settings)
+    return redirect("/feeds", f"피드 '{name}'을(를) 저장했습니다.")
+
+
+@app.post("/feeds/{feed_id}/delete")
+def feed_delete(feed_id: str):
+    settings = load_settings()
+    feed = find_feed(settings, feed_id)
+    if not feed:
+        raise HTTPException(404)
+    settings["feeds"].remove(feed)
+    save_settings(settings)
+    return redirect("/feeds", f"피드 '{feed['name']}'을(를) 삭제했습니다. 수집된 게시물과 파일은 유지됩니다.")
+
+
+@app.post("/feeds/{feed_id}/run")
+def feed_run(feed_id: str):
+    feed = find_feed(load_settings(), feed_id)
+    if not feed:
+        raise HTTPException(404)
+    if svc.start_crawl_async("manual", feed_id):
+        return redirect("/", f"피드 '{feed['name']}' 크롤링을 시작했습니다.")
+    return redirect("/feeds", "이미 크롤링이 실행 중입니다.", "warning")
 
 
 # ------------------------------------------------------------ crawl ctl ---
@@ -263,37 +358,40 @@ def _set_login_user(username: str) -> None:
 
 # -------------------------------------------------------------------- rss --
 
-def _feed_response(request: Request, target_type: str | None, target_name: str | None) -> Response:
+def _rss(request: Request, targets: list[tuple[str, str]] | None, title: str, desc: str) -> Response:
     settings = load_settings()
     b = base_url(request)
-    posts = db.list_posts(target_type, target_name, limit=settings["rss"]["items_limit"])
-    title = settings["rss"]["title"]
-    if target_type == "profile":
-        title, desc = f"{title} - @{target_name}", f"Instagram @{target_name} 게시물"
-    elif target_type == "hashtag":
-        title, desc = f"{title} - #{target_name}", f"Instagram #{target_name} 게시물"
-    else:
-        desc = "Instaloader로 수집한 Instagram 게시물"
-    self_url = b + request.url.path
-    xml = build_feed(posts, b, title, self_url, desc)
+    posts = db.list_posts(targets, limit=settings["rss"]["items_limit"])
+    xml = build_feed(posts, b, title, b + request.url.path, desc)
     return Response(xml, media_type="application/rss+xml; charset=utf-8")
 
 
 @app.get("/rss")
 def rss_all(request: Request):
-    return _feed_response(request, None, None)
+    return _rss(request, None, load_settings()["rss"]["title"], "Instaloader로 수집한 Instagram 게시물")
+
+
+@app.get("/rss/feed/{feed_id}")
+def rss_feed(request: Request, feed_id: str):
+    feed = find_feed(load_settings(), feed_id)
+    if not feed:
+        raise HTTPException(404)
+    labels = [f"@{p}" for p in feed["profiles"]] + [f"#{h}" for h in feed["hashtags"]]
+    return _rss(request, feed_targets(feed), feed["name"], "Instagram " + " ".join(labels))
 
 
 @app.get("/rss/{target_type}/{name}")
 def rss_target(request: Request, target_type: str, name: str):
     if target_type not in ("profile", "hashtag"):
         raise HTTPException(404)
-    return _feed_response(request, target_type, name)
+    label = f"@{name}" if target_type == "profile" else f"#{name}"
+    title = load_settings()["rss"]["title"]
+    return _rss(request, [(target_type, name)], f"{title} - {label}", f"Instagram {label} 게시물")
 
 
 @app.get("/healthz")
 def healthz():
-    return {"ok": True}
+    return {"ok": True, "version": __version__}
 
 
 def _localtime(value) -> str:
@@ -306,4 +404,5 @@ def _localtime(value) -> str:
 
 
 templates.env.globals["media_url"] = media_url
+templates.env.globals["app_version"] = __version__
 templates.env.filters["localtime"] = _localtime
